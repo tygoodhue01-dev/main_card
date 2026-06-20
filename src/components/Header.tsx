@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ShoppingCart, User, LogOut, Shield, Menu, X, Layers, DollarSign, ChevronDown, HelpCircle, Truck, Info, MessageSquare, Settings, Package } from 'lucide-react';
+import { ShoppingCart, User, LogOut, Shield, Menu, X, Layers, DollarSign, ChevronDown, HelpCircle, Truck, Info, MessageSquare, Settings, Package, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 
@@ -97,6 +97,22 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
               Sell Cards
               {currentPage === 'sell' && (
                 <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-red-500 rounded-full" />
+              )}
+            </button>
+
+            {/* Mystery Boxes */}
+            <button
+              onClick={() => nav('mystery-boxes')}
+              className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
+                currentPage === 'mystery-boxes'
+                  ? 'text-yellow-400'
+                  : 'text-yellow-500/70 hover:text-yellow-400 hover:bg-yellow-500/5'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Mystery Boxes
+              {currentPage === 'mystery-boxes' && (
+                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-yellow-500 rounded-full" />
               )}
             </button>
 
@@ -201,6 +217,13 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
                     >
                       <DollarSign className="w-3.5 h-3.5" />
                       Sell Cards
+                    </button>
+                    <button
+                      onClick={() => nav('mystery-boxes')}
+                      className="w-full text-left px-4 py-2.5 text-sm text-yellow-400 hover:bg-yellow-500/10 hover:text-yellow-300 transition-colors flex items-center gap-2"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Mystery Boxes
                     </button>
                     {isAdmin && (
                       <button

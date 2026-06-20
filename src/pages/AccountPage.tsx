@@ -504,6 +504,13 @@ export default function AccountPage({ onNavigate, initialTab = 'overview' }: Acc
                         <Gift className="w-3.5 h-3.5 text-yellow-100" />
                         <span className="text-xs font-semibold text-yellow-100">Apply at checkout</span>
                       </div>
+                      <button
+                        onClick={() => onNavigate('mystery-boxes')}
+                        className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-lg px-3 py-1.5 transition-colors"
+                      >
+                        <span className="text-xs font-bold text-white">Open Mystery Boxes</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-white" />
+                      </button>
                     </div>
                   </div>
                 </div>

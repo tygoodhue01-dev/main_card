@@ -17,6 +17,7 @@ import ShippingReturnsPage from './pages/ShippingReturnsPage';
 import ContactPage from './pages/ContactPage';
 import MaintenancePage from './pages/MaintenancePage';
 import AccountPage from './pages/AccountPage';
+import MysteryBoxPage from './pages/MysteryBoxPage';
 import PromoModal from './components/PromoModal';
 import { supabase } from './lib/supabase';
 import { AlertTriangle } from 'lucide-react';
@@ -70,7 +71,7 @@ function AppContent() {
       return;
     }
     if (page === 'admin' && !isAdmin) return;
-    if ((page === 'orders' || page === 'account') && !user) {
+    if ((page === 'orders' || page === 'account' || page === 'mystery-boxes') && !user) {
       setCurrentPage('auth');
       return;
     }
@@ -160,6 +161,7 @@ function AppContent() {
         {currentPage === 'faq' && <FAQPage onNavigate={navigate} />}
         {currentPage === 'shipping' && <ShippingReturnsPage onNavigate={navigate} />}
         {currentPage === 'contact' && <ContactPage onNavigate={navigate} />}
+        {currentPage === 'mystery-boxes' && <MysteryBoxPage onNavigate={navigate} />}
       </div>
     </div>
   );
