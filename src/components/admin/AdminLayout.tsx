@@ -13,10 +13,11 @@ import {
   ArrowDownToLine,
   Megaphone,
   Share2,
+  Coins,
 } from 'lucide-react';
 import { useState } from 'react';
 
-export type AdminSection = 'dashboard' | 'products' | 'orders' | 'customers' | 'sell-requests' | 'modal' | 'social' | 'settings';
+export type AdminSection = 'dashboard' | 'products' | 'orders' | 'customers' | 'sell-requests' | 'modal' | 'social' | 'rewards' | 'settings';
 
 const SECTION_TITLES: Record<AdminSection, string> = {
   dashboard: 'Dashboard',
@@ -26,6 +27,7 @@ const SECTION_TITLES: Record<AdminSection, string> = {
   'sell-requests': 'Sell Requests',
   modal: 'Promotions',
   social: 'Social Media',
+  rewards: 'PokeBucks Rewards',
   settings: 'Settings',
 };
 
@@ -44,6 +46,7 @@ const NAV = [
   { id: 'sell-requests' as AdminSection, label: 'Sell Requests',icon: ArrowDownToLine },
   { id: 'modal' as AdminSection,         label: 'Promotions',   icon: Megaphone },
   { id: 'social' as AdminSection,        label: 'Social Media', icon: Share2 },
+  { id: 'rewards' as AdminSection,       label: 'PokeBucks',    icon: Coins },
   { id: 'settings' as AdminSection,      label: 'Settings',     icon: Settings },
 ];
 

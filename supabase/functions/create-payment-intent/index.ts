@@ -13,14 +13,15 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
+  const respond = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!authHeader) return respond({ error: "Unauthorized" }, 401);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -30,73 +31,75 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(
       authHeader.replace("Bearer ", "")
     );
+    if (authError || !user) return respond({ error: "Unauthorized" }, 401);
 
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { items, pkb_discount = 0 } = await req.json() as {
+      items: { product_id: string; quantity: number }[];
+      pkb_discount?: number;
+    };
 
-    const { items } = await req.json() as { items: { product_id: string; quantity: number }[] };
-
-    if (!items || items.length === 0) {
-      return new Response(JSON.stringify({ error: "No items provided" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!items || items.length === 0) return respond({ error: "No items provided" }, 400);
 
     // Fetch actual prices from DB — never trust client-side amounts
-    const productIds = items.map((i) => i.product_id);
     const { data: products, error: prodError } = await supabase
       .from("products")
       .select("id, price, name, in_stock, quantity")
-      .in("id", productIds);
+      .in("id", items.map((i) => i.product_id));
 
-    if (prodError || !products) {
-      return new Response(JSON.stringify({ error: "Failed to fetch products" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (prodError || !products) return respond({ error: "Failed to fetch products" }, 500);
 
     let totalCents = 0;
     for (const item of items) {
       const product = products.find((p) => p.id === item.product_id);
-      if (!product) {
-        return new Response(JSON.stringify({ error: `Product not found: ${item.product_id}` }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+      if (!product) return respond({ error: `Product not found: ${item.product_id}` }, 400);
       if (!product.in_stock || product.quantity < item.quantity) {
-        return new Response(JSON.stringify({ error: `${product.name} is out of stock` }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return respond({ error: `${product.name} is out of stock` }, 400);
       }
       totalCents += Math.round(product.price * 100) * item.quantity;
     }
+
+    // Validate and apply PKB discount (10 PKB = $1 = 100 cents)
+    let discountCents = 0;
+    const pkbApplied = Math.floor(pkb_discount ?? 0);
+    if (pkbApplied > 0) {
+      // Validate balance server-side
+      const { data: ledger } = await supabase
+        .from("rewards_ledger")
+        .select("amount")
+        .eq("user_id", user.id);
+
+      const balance = (ledger ?? []).reduce((sum: number, r: { amount: number }) => sum + Number(r.amount), 0);
+      if (pkbApplied > balance) {
+        return respond({ error: "Insufficient PokeBucks balance" }, 400);
+      }
+
+      discountCents = Math.floor(pkbApplied / 10) * 100;
+    }
+
+    // Stripe minimum is $0.50 — ensure we never go below that
+    const chargedCents = Math.max(totalCents - discountCents, 50);
 
     const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
       apiVersion: "2024-06-20",
     });
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: totalCents,
+      amount: chargedCents,
       currency: "usd",
-      metadata: { user_id: user.id },
+      metadata: {
+        user_id: user.id,
+        pkb_discount: String(pkbApplied),
+        original_total_cents: String(totalCents),
+      },
     });
 
-    return new Response(
-      JSON.stringify({ client_secret: paymentIntent.client_secret }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (err) {
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return respond({
+      client_secret: paymentIntent.client_secret,
+      total_cents: chargedCents,
+      discount_cents: discountCents,
+      original_total_cents: totalCents,
     });
+  } catch (err) {
+    return respond({ error: (err as Error).message }, 500);
   }
 });

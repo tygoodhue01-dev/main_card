@@ -19,12 +19,18 @@ import {
   MapPin,
   Loader2,
   LayoutDashboard,
+  Coins,
+  ArrowDownToLine,
+  ExternalLink,
+  TrendingUp,
+  Gift,
+  Wallet,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { Order, OrderItem, Product } from '../types';
 
-type Tab = 'overview' | 'orders' | 'profile' | 'security';
+type Tab = 'overview' | 'orders' | 'rewards' | 'profile' | 'security';
 
 interface OrderWithItems extends Order {
   order_items: (OrderItem & { product: Product | null })[];
@@ -51,6 +57,17 @@ export default function AccountPage({ onNavigate, initialTab = 'overview' }: Acc
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
+  // Rewards
+  type LedgerRow = { id: string; type: string; amount: number; description: string; created_at: string };
+  type WithdrawalRow = { id: string; amount: number; wallet_address: string; status: string; tx_hash: string | null; created_at: string };
+  const [pkbLedger, setPkbLedger] = useState<LedgerRow[]>([]);
+  const [pkbWithdrawals, setPkbWithdrawals] = useState<WithdrawalRow[]>([]);
+  const [rewardsLoading, setRewardsLoading] = useState(true);
+  const [withdrawWallet, setWithdrawWallet] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawMsg, setWithdrawMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // Profile edit
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
   const [profileSaving, setProfileSaving] = useState(false);
@@ -76,6 +93,15 @@ export default function AccountPage({ onNavigate, initialTab = 'overview' }: Acc
         setOrders((data as OrderWithItems[]) ?? []);
         setOrdersLoading(false);
       });
+
+    Promise.all([
+      supabase.from('rewards_ledger').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('rewards_withdrawals').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+    ]).then(([ledgerRes, wRes]) => {
+      setPkbLedger((ledgerRes.data ?? []) as LedgerRow[]);
+      setPkbWithdrawals((wRes.data ?? []) as WithdrawalRow[]);
+      setRewardsLoading(false);
+    });
   }, [user]);
 
   useEffect(() => {
@@ -150,9 +176,38 @@ export default function AccountPage({ onNavigate, initialTab = 'overview' }: Acc
     setTimeout(() => setPwMsg(null), 4000);
   };
 
+  const pkbBalance = pkbLedger.reduce((sum, r) => sum + Number(r.amount), 0);
+
+  const handleWithdraw = async () => {
+    if (!withdrawWallet.trim() || !withdrawAmount || Number(withdrawAmount) < 100) return;
+    setWithdrawing(true);
+    try {
+      const { error } = await supabase.rpc('request_pokebucks_withdrawal', {
+        p_amount: Number(withdrawAmount),
+        p_wallet: withdrawWallet.trim(),
+      });
+      if (error) throw new Error(error.message);
+      setWithdrawMsg({ type: 'success', text: `Withdrawal of ${withdrawAmount} $PKB submitted! Admin will process it shortly.` });
+      setWithdrawWallet(''); setWithdrawAmount('');
+      // Refresh ledger
+      const [ledgerRes, wRes] = await Promise.all([
+        supabase.from('rewards_ledger').select('*').eq('user_id', user!.id).order('created_at', { ascending: false }),
+        supabase.from('rewards_withdrawals').select('*').eq('user_id', user!.id).order('created_at', { ascending: false }),
+      ]);
+      setPkbLedger((ledgerRes.data ?? []) as LedgerRow[]);
+      setPkbWithdrawals((wRes.data ?? []) as WithdrawalRow[]);
+    } catch (err: any) {
+      setWithdrawMsg({ type: 'error', text: err.message ?? 'Withdrawal failed. Please try again.' });
+    } finally {
+      setWithdrawing(false);
+      setTimeout(() => setWithdrawMsg(null), 5000);
+    }
+  };
+
   const tabs: { id: Tab; label: string; icon: typeof User }[] = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'orders',   label: 'My Orders', icon: Package },
+    { id: 'rewards',  label: 'PokeBucks',  icon: Coins },
     { id: 'profile',  label: 'Profile',   icon: User },
     { id: 'security', label: 'Security',  icon: Lock },
   ];
@@ -223,10 +278,11 @@ export default function AccountPage({ onNavigate, initialTab = 'overview' }: Acc
             {tab === 'overview' && (
               <>
                 {/* Stats row */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   {[
                     { label: 'Total Orders', value: orders.length, icon: ShoppingBag, color: 'text-blue-600', bg: 'bg-blue-50' },
                     { label: 'Total Spent', value: `$${totalSpent.toFixed(2)}`, icon: CreditCard, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                    { label: 'PokeBucks', value: `${Math.max(0, pkbBalance).toLocaleString()} $PKB`, icon: Coins, color: 'text-yellow-600', bg: 'bg-yellow-50' },
                     { label: 'Member Since', value: new Date(profile?.created_at ?? '').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), icon: Calendar, color: 'text-amber-600', bg: 'bg-amber-50' },
                   ].map(({ label, value, icon: Icon, color, bg }) => (
                     <div key={label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
@@ -419,6 +475,205 @@ export default function AccountPage({ onNavigate, initialTab = 'overview' }: Acc
                   </div>
                 )}
               </div>
+            )}
+
+            {/* ── REWARDS ── */}
+            {tab === 'rewards' && (
+              <>
+                {/* Balance hero */}
+                <div className="bg-gradient-to-br from-yellow-400 via-yellow-500 to-amber-600 rounded-2xl p-6 text-white relative overflow-hidden shadow-lg shadow-yellow-900/20">
+                  <div className="absolute inset-0 opacity-10 pointer-events-none"
+                    style={{ backgroundImage: 'radial-gradient(circle at 80% 20%, #fff 0, transparent 50%)', backgroundSize: '100% 100%' }} />
+                  <div className="relative">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Coins className="w-5 h-5 text-yellow-100" />
+                      <span className="text-xs font-bold text-yellow-100 uppercase tracking-widest">PokeBucks Balance</span>
+                      <span className="ml-auto text-[10px] font-bold bg-white/20 border border-white/30 px-2 py-0.5 rounded-full">Polygon Network</span>
+                    </div>
+                    <p className="text-4xl font-black tracking-tight" style={{ fontFamily: 'Rajdhani, Inter, sans-serif' }}>
+                      {rewardsLoading ? '—' : Math.max(0, pkbBalance).toLocaleString()}
+                    </p>
+                    <p className="text-yellow-100 font-semibold text-lg">$PKB</p>
+                    <p className="text-yellow-200 text-sm mt-1">≈ ${(Math.max(0, pkbBalance) / 10).toFixed(2)} USD value</p>
+                    <div className="mt-4 flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-1.5 bg-white/15 border border-white/20 rounded-lg px-3 py-1.5">
+                        <TrendingUp className="w-3.5 h-3.5 text-yellow-100" />
+                        <span className="text-xs font-semibold text-yellow-100">10 $PKB per $1 spent</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-white/15 border border-white/20 rounded-lg px-3 py-1.5">
+                        <Gift className="w-3.5 h-3.5 text-yellow-100" />
+                        <span className="text-xs font-semibold text-yellow-100">Apply at checkout</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transaction history */}
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 border-b border-gray-100">
+                    <h3 className="font-semibold text-gray-900 text-sm">Transaction History</h3>
+                  </div>
+                  {rewardsLoading ? (
+                    <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
+                  ) : pkbLedger.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Coins className="w-8 h-8 text-gray-200 mx-auto mb-3" />
+                      <p className="text-sm text-gray-400 font-medium">No transactions yet</p>
+                      <p className="text-xs text-gray-300 mt-1">Make a purchase to earn your first $PKB!</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-50">
+                      {pkbLedger.map((row) => {
+                        const isCredit = Number(row.amount) > 0;
+                        const typeLabel: Record<string, string> = {
+                          earned: 'Earned', spent: 'Redeemed', withdrawn: 'Withdrawn',
+                          bonus: 'Bonus', refunded: 'Refunded', manual: 'Admin Award',
+                        };
+                        return (
+                          <div key={row.id} className="flex items-center gap-4 px-5 py-3.5">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                              isCredit ? 'bg-green-50' : 'bg-red-50'
+                            }`}>
+                              {isCredit
+                                ? <TrendingUp className="w-3.5 h-3.5 text-green-600" />
+                                : <ArrowDownToLine className="w-3.5 h-3.5 text-red-500" />
+                              }
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{row.description}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {typeLabel[row.type] ?? row.type} · {new Date(row.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </p>
+                            </div>
+                            <span className={`text-sm font-bold flex-shrink-0 ${isCredit ? 'text-green-600' : 'text-red-500'}`}>
+                              {isCredit ? '+' : ''}{Number(row.amount).toLocaleString()} $PKB
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Withdraw to wallet */}
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 border-b border-gray-100">
+                    <h3 className="font-semibold text-gray-900 text-sm">Withdraw to Polygon Wallet</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">Transfer $PKB to your MetaMask or any Polygon-compatible wallet. Min. 100 $PKB.</p>
+                  </div>
+                  <div className="p-5 space-y-4">
+                    {withdrawMsg && (
+                      <div className={`flex items-start gap-2 text-sm px-4 py-3 rounded-xl border ${
+                        withdrawMsg.type === 'success'
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : 'bg-red-50 text-red-700 border-red-200'
+                      }`}>
+                        {withdrawMsg.type === 'success'
+                          ? <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                          : <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+                        {withdrawMsg.text}
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                        Polygon Wallet Address
+                      </label>
+                      <div className="relative">
+                        <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          value={withdrawWallet}
+                          onChange={(e) => setWithdrawWallet(e.target.value)}
+                          placeholder="0x..."
+                          className="w-full pl-9 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                        Amount ($PKB) — Balance: {Math.max(0, pkbBalance).toLocaleString()} $PKB
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min="100"
+                          step="10"
+                          max={Math.max(0, pkbBalance)}
+                          value={withdrawAmount}
+                          onChange={(e) => setWithdrawAmount(e.target.value)}
+                          placeholder="Min. 100"
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                        />
+                        <button
+                          onClick={() => setWithdrawAmount(String(Math.max(0, pkbBalance)))}
+                          className="px-3 py-2.5 text-xs font-semibold text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-xl hover:bg-yellow-100 transition-colors"
+                        >
+                          Max
+                        </button>
+                      </div>
+                      {withdrawAmount && Number(withdrawAmount) >= 100 && (
+                        <p className="text-xs text-gray-400 mt-1.5">≈ ${(Number(withdrawAmount) / 10).toFixed(2)} USD equivalent on Polygon</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleWithdraw}
+                      disabled={withdrawing || !withdrawWallet.trim() || Number(withdrawAmount) < 100 || Number(withdrawAmount) > pkbBalance}
+                      className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-400 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-yellow-900/20"
+                    >
+                      {withdrawing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowDownToLine className="w-4 h-4" />}
+                      {withdrawing ? 'Submitting...' : 'Request Withdrawal'}
+                    </button>
+                    <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                      <ExternalLink className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                      <p className="text-xs text-gray-500">Withdrawals are processed manually within 1–3 business days and sent to your wallet on the Polygon network.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pending withdrawals */}
+                {pkbWithdrawals.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-100">
+                      <h3 className="font-semibold text-gray-900 text-sm">Withdrawal Requests</h3>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {pkbWithdrawals.map((w) => {
+                        const statusColor: Record<string, string> = {
+                          pending: 'bg-amber-50 text-amber-700 border-amber-200',
+                          processing: 'bg-blue-50 text-blue-700 border-blue-200',
+                          completed: 'bg-green-50 text-green-700 border-green-200',
+                          rejected: 'bg-red-50 text-red-700 border-red-200',
+                        };
+                        return (
+                          <div key={w.id} className="flex items-center gap-4 px-5 py-3.5">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusColor[w.status] ?? statusColor.pending}`}>
+                                  {w.status.charAt(0).toUpperCase() + w.status.slice(1)}
+                                </span>
+                                <span className="text-sm font-bold text-gray-900">{w.amount.toLocaleString()} $PKB</span>
+                              </div>
+                              <p className="text-xs text-gray-400 font-mono">{w.wallet_address.slice(0, 10)}...{w.wallet_address.slice(-6)}</p>
+                              {w.tx_hash && (
+                                <a
+                                  href={`https://polygonscan.com/tx/${w.tx_hash}`}
+                                  target="_blank" rel="noopener noreferrer"
+                                  className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1 mt-0.5"
+                                >
+                                  View on Polygonscan <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-400 flex-shrink-0">
+                              {new Date(w.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* ── PROFILE ── */}

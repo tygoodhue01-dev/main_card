@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import {
   Elements,
@@ -6,7 +6,7 @@ import {
   useStripe,
   useElements,
 } from '@stripe/react-stripe-js';
-import { ArrowLeft, ArrowRight, CheckCircle, Lock, Package, ShoppingBag } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, Lock, Package, ShoppingBag, Coins, TrendingUp, X } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -41,12 +41,26 @@ const EMPTY_SHIPPING: ShippingData = {
 
 // ─── Order Summary sidebar ──────────────────────────────────────────────────
 
-function OrderSummary() {
+interface OrderSummaryProps {
+  pkbBalance: number;
+  pkbToApply: number;
+  onPkbChange: (v: number) => void;
+  finalTotal: number;
+  pkbEarnPreview: number;
+  isLoggedIn: boolean;
+}
+
+function OrderSummary({ pkbBalance, pkbToApply, onPkbChange, finalTotal, pkbEarnPreview, isLoggedIn }: OrderSummaryProps) {
   const { items, totalPrice } = useCart();
+  const pkbDiscount = pkbToApply / 10;
+  // Max applicable: leave at least $1 for Stripe, rounded to nearest 10 PKB
+  const maxApplicable = Math.max(0, Math.floor((totalPrice - 1.0) * 10 / 10) * 10);
+  const maxToApply = Math.min(pkbBalance, maxApplicable);
+
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 sticky top-24">
-      <h3 className="font-bold text-gray-900 text-base mb-4">Order Summary</h3>
-      <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+    <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 sticky top-24 space-y-4">
+      <h3 className="font-bold text-gray-900 text-base">Order Summary</h3>
+      <div className="space-y-3 max-h-52 overflow-y-auto pr-1">
         {items.map(({ product, quantity }) => (
           <div key={product.id} className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 flex-shrink-0 overflow-hidden">
@@ -68,7 +82,8 @@ function OrderSummary() {
           </div>
         ))}
       </div>
-      <div className="border-t border-gray-200 mt-4 pt-4 space-y-2">
+
+      <div className="border-t border-gray-200 pt-4 space-y-2">
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">Subtotal</span>
           <span className="font-semibold text-gray-900">${totalPrice.toFixed(2)}</span>
@@ -77,12 +92,72 @@ function OrderSummary() {
           <span className="text-gray-500">Shipping</span>
           <span className="font-semibold text-green-600">Free</span>
         </div>
+        {pkbToApply > 0 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-yellow-700 font-medium flex items-center gap-1">
+              <Coins className="w-3.5 h-3.5" />
+              PokeBucks ({pkbToApply.toLocaleString()} $PKB)
+            </span>
+            <span className="font-semibold text-green-600">-${pkbDiscount.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between border-t border-gray-200 pt-3 mt-1">
           <span className="font-bold text-gray-900">Total</span>
           <span className="font-bold text-gray-900 text-lg" style={{ fontFamily: 'Rajdhani, Inter, sans-serif' }}>
-            ${totalPrice.toFixed(2)}
+            ${finalTotal.toFixed(2)}
           </span>
         </div>
+      </div>
+
+      {/* PKB apply section */}
+      {isLoggedIn && (
+        <div className="border border-yellow-200 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 bg-yellow-50 border-b border-yellow-100">
+            <Coins className="w-3.5 h-3.5 text-yellow-600" />
+            <span className="text-xs font-bold text-yellow-800">PokeBucks</span>
+            <span className="ml-auto text-xs text-yellow-600 font-semibold">{pkbBalance.toLocaleString()} available</span>
+          </div>
+          <div className="p-3 space-y-2 bg-white">
+            {pkbBalance < 10 ? (
+              <p className="text-xs text-gray-400">You need at least 10 $PKB to redeem. Earn by shopping!</p>
+            ) : maxToApply === 0 ? (
+              <p className="text-xs text-gray-400">Order total too low to apply $PKB.</p>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={maxToApply}
+                    step={10}
+                    value={pkbToApply}
+                    onChange={(e) => onPkbChange(Number(e.target.value))}
+                    className="flex-1 accent-yellow-500"
+                  />
+                  <span className="text-xs font-bold text-yellow-700 w-16 text-right">
+                    {pkbToApply > 0 ? `-$${(pkbToApply / 10).toFixed(2)}` : '$0.00'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">{pkbToApply.toLocaleString()} $PKB applied</span>
+                  {pkbToApply > 0 && (
+                    <button onClick={() => onPkbChange(0)} className="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5">
+                      <X className="w-2.5 h-2.5" />Clear
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* PKB earn preview */}
+      <div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-3 py-2.5">
+        <TrendingUp className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+        <p className="text-xs text-green-700 font-medium">
+          You'll earn <span className="font-bold">{pkbEarnPreview.toLocaleString()} $PKB</span> with this order
+        </p>
       </div>
     </div>
   );
@@ -339,19 +414,33 @@ function PaymentFormInner({ shipping, totalPrice, onBack, onSuccess }: PaymentFo
 
 // ─── Confirmation Screen ─────────────────────────────────────────────────────
 
-function ConfirmationScreen({ onNavigate }: { onNavigate: (page: string) => void }) {
+function ConfirmationScreen({ onNavigate, pkbEarned }: { onNavigate: (page: string) => void; pkbEarned: number }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="text-center max-w-md">
+      <div className="text-center max-w-md w-full">
         <div className="w-20 h-20 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-green-100">
           <CheckCircle className="w-10 h-10 text-green-500" />
         </div>
         <h2 className="text-3xl font-bold text-gray-900 mb-2" style={{ fontFamily: 'Rajdhani, Inter, sans-serif' }}>
           Order Confirmed!
         </h2>
-        <p className="text-gray-500 mb-8 text-sm leading-relaxed">
+        <p className="text-gray-500 mb-6 text-sm leading-relaxed">
           Payment received. We'll pack your cards with care and ship them with tracking — check your orders page for updates.
         </p>
+        {pkbEarned > 0 && (
+          <div className="flex items-center gap-3 bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-2xl px-5 py-4 mb-6 text-left">
+            <div className="w-10 h-10 bg-yellow-400 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm">
+              <Coins className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-yellow-700 font-semibold uppercase tracking-wider">PokeBucks Earned!</p>
+              <p className="text-xl font-black text-yellow-800" style={{ fontFamily: 'Rajdhani, Inter, sans-serif' }}>
+                +{pkbEarned.toLocaleString()} $PKB
+              </p>
+              <p className="text-xs text-yellow-600">Added to your account · View in PokeBucks tab</p>
+            </div>
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             onClick={() => onNavigate('orders')}
@@ -386,6 +475,27 @@ export default function CheckoutPage({ onNavigate }: { onNavigate: (page: string
   const [loadingIntent, setLoadingIntent] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
 
+  // PokeBucks
+  const [pkbBalance, setPkbBalance] = useState(0);
+  const [pkbToApply, setPkbToApply] = useState(0);
+  const [pkbEarned, setPkbEarned] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('rewards_ledger')
+      .select('amount')
+      .eq('user_id', user.id)
+      .then(({ data }) => {
+        const bal = (data ?? []).reduce((s, r) => s + Number(r.amount), 0);
+        setPkbBalance(Math.max(0, bal));
+      });
+  }, [user]);
+
+  const pkbDiscount = pkbToApply / 10;
+  const finalTotal = Math.max(totalPrice - pkbDiscount, 1.0); // keep $1 min for Stripe
+  const pkbEarnPreview = Math.floor(finalTotal * 10);
+
   const stripePromise = useMemo(() => loadStripe(STRIPE_KEY ?? ''), []);
   const stripeOptions = useMemo(
     () => clientSecret ? { clientSecret, appearance: { theme: 'stripe' as const } } : undefined,
@@ -412,7 +522,7 @@ export default function CheckoutPage({ onNavigate }: { onNavigate: (page: string
     );
   }
 
-  if (confirmed) return <ConfirmationScreen onNavigate={onNavigate} />;
+  if (confirmed) return <ConfirmationScreen onNavigate={onNavigate} pkbEarned={pkbEarned} />;
 
   const handleContinueToPayment = async () => {
     setLoadingIntent(true);
@@ -430,6 +540,7 @@ export default function CheckoutPage({ onNavigate }: { onNavigate: (page: string
         },
         body: JSON.stringify({
           items: items.map((i) => ({ product_id: i.product.id, quantity: i.quantity })),
+          pkb_discount: pkbToApply,
         }),
       });
 
@@ -459,7 +570,7 @@ export default function CheckoutPage({ onNavigate }: { onNavigate: (page: string
         .from('orders')
         .insert({
           user_id: user.id,
-          total: totalPrice,
+          total: finalTotal,
           shipping_address: shippingAddress,
           status: 'pending',
           stripe_payment_intent_id: paymentIntentId,
@@ -478,6 +589,15 @@ export default function CheckoutPage({ onNavigate }: { onNavigate: (page: string
           price: i.product.price,
         }))
       );
+
+      // Spend PKB if applied
+      if (pkbToApply > 0) {
+        await supabase.rpc('spend_pokebucks', { p_amount: pkbToApply, p_order_id: order.id });
+      }
+
+      // Award PKB for this purchase
+      const { data: earned } = await supabase.rpc('award_pokebucks_for_order', { p_order_id: order.id });
+      setPkbEarned(Number(earned) ?? 0);
 
       clearCart();
       setStep('done');
@@ -525,7 +645,7 @@ export default function CheckoutPage({ onNavigate }: { onNavigate: (page: string
               <Elements stripe={stripePromise} options={stripeOptions}>
                 <PaymentFormInner
                   shipping={shipping}
-                  totalPrice={totalPrice}
+                  totalPrice={finalTotal}
                   onBack={() => setStep('shipping')}
                   onSuccess={handlePaymentSuccess}
                 />
@@ -535,7 +655,14 @@ export default function CheckoutPage({ onNavigate }: { onNavigate: (page: string
 
           {/* Right: order summary */}
           <div className="lg:col-span-2">
-            <OrderSummary />
+            <OrderSummary
+              pkbBalance={pkbBalance}
+              pkbToApply={pkbToApply}
+              onPkbChange={setPkbToApply}
+              finalTotal={finalTotal}
+              pkbEarnPreview={pkbEarnPreview}
+              isLoggedIn={!!user}
+            />
           </div>
         </div>
       </div>
