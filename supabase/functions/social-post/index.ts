@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const GRAPH = "https://graph.facebook.com/v19.0";
+const GRAPH = "https://graph.facebook.com/v21.0";
 
 async function postToFacebook(
   pageId: string,
